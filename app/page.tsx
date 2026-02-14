@@ -6,16 +6,77 @@
 import { useState } from 'react'
 import ProductSelector from '@/components/ProductSelector'
 import AgentStatus, { type AgentStep } from '@/components/AgentStatus'
+import ResultsDisplay, { type Issue, type Action } from '@/components/ResultsDisplay'
 
 export default function Home() {
   // State to track agent progress (like @current_step = 'idle' in Rails)
   const [currentStep, setCurrentStep] = useState<AgentStep>('idle')
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
+  const [issues, setIssues] = useState<Issue[]>([])
+  const [actions, setActions] = useState<Action[]>([])
+
+  // Generate mock data (like a Rails method that creates sample data)
+  const generateMockResults = (product: string) => {
+    // Mock issue data
+    const mockIssues: Issue[] = [
+      {
+        id: 'issue-1',
+        title: 'Packaging Leakage Issue',
+        description: 'Multiple customers reporting product leakage from packaging. Issue appears to be affecting product integrity during shipping.',
+        confidence: 'high',
+        platforms: ['Marketplace A', 'Marketplace B'],
+        trend: 'increasing',
+        reviewCount: 18,
+        firstDetected: 'Feb 22, 2026',
+        evidence: [
+          'Product arrived with leaking container, very disappointed',
+          'Package was damaged and contents spilled out',
+          'Leakage issue - needs immediate attention'
+        ]
+      },
+      {
+        id: 'issue-2',
+        title: 'Quality Degradation Concerns',
+        description: 'Customers noticing decline in product quality compared to previous purchases.',
+        confidence: 'medium',
+        platforms: ['Marketplace A'],
+        trend: 'stable',
+        reviewCount: 7,
+        firstDetected: 'Feb 20, 2026',
+        evidence: [
+          'Quality not as good as before',
+          'Seems different from what I ordered last time'
+        ]
+      }
+    ]
+
+    // Mock actions taken
+    const mockActions: Action[] = [
+      {
+        type: 'issue_created',
+        status: 'success',
+        message: 'Issue #1234 created in tracking system',
+        timestamp: new Date().toLocaleString()
+      },
+      {
+        type: 'response_drafted',
+        status: 'success',
+        message: 'Customer response template generated',
+        timestamp: new Date().toLocaleString()
+      }
+    ]
+
+    return { issues: mockIssues, actions: mockActions }
+  }
 
   // Handler function (like a Rails controller action)
   const handleAnalyze = async (product: string) => {
     console.log('Analyzing product:', product)
     setSelectedProduct(product)
+    
+    // Clear previous results
+    setIssues([])
+    setActions([])
     
     // Simulate agent progress through steps
     // In real app, this will be driven by API responses
@@ -36,10 +97,17 @@ export default function Home() {
       await new Promise(resolve => setTimeout(resolve, 1500))
     }
 
-    // After completion, reset after a delay
-    setTimeout(() => {
-      setCurrentStep('idle')
-    }, 3000)
+    // When complete, show results
+    const results = generateMockResults(product)
+    setIssues(results.issues)
+    setActions(results.actions)
+
+    // After showing results for a while, reset (optional)
+    // setTimeout(() => {
+    //   setCurrentStep('idle')
+    //   setIssues([])
+    //   setActions([])
+    // }, 10000)
   }
 
   return (
@@ -55,6 +123,13 @@ export default function Home() {
       {/* Agent Status Component - Shows multi-step progress */}
       <AgentStatus 
         currentStep={currentStep} 
+        productName={selectedProduct || undefined}
+      />
+
+      {/* Results Display - Shows issues and actions */}
+      <ResultsDisplay
+        issues={issues}
+        actions={actions}
         productName={selectedProduct || undefined}
       />
     </main>
