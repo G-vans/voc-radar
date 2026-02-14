@@ -15,60 +15,6 @@ export default function Home() {
   const [issues, setIssues] = useState<Issue[]>([])
   const [actions, setActions] = useState<Action[]>([])
 
-  // Generate mock data (like a Rails method that creates sample data)
-  const generateMockResults = (product: string) => {
-    // Mock issue data
-    const mockIssues: Issue[] = [
-      {
-        id: 'issue-1',
-        title: 'Packaging Leakage Issue',
-        description: 'Multiple customers reporting product leakage from packaging. Issue appears to be affecting product integrity during shipping.',
-        confidence: 'high',
-        platforms: ['Marketplace A', 'Marketplace B'],
-        trend: 'increasing',
-        reviewCount: 18,
-        firstDetected: 'Feb 22, 2026',
-        evidence: [
-          'Product arrived with leaking container, very disappointed',
-          'Package was damaged and contents spilled out',
-          'Leakage issue - needs immediate attention'
-        ]
-      },
-      {
-        id: 'issue-2',
-        title: 'Quality Degradation Concerns',
-        description: 'Customers noticing decline in product quality compared to previous purchases.',
-        confidence: 'medium',
-        platforms: ['Marketplace A'],
-        trend: 'stable',
-        reviewCount: 7,
-        firstDetected: 'Feb 20, 2026',
-        evidence: [
-          'Quality not as good as before',
-          'Seems different from what I ordered last time'
-        ]
-      }
-    ]
-
-    // Mock actions taken
-    const mockActions: Action[] = [
-      {
-        type: 'issue_created',
-        status: 'success',
-        message: 'Issue #1234 created in tracking system',
-        timestamp: new Date().toLocaleString()
-      },
-      {
-        type: 'response_drafted',
-        status: 'success',
-        message: 'Customer response template generated',
-        timestamp: new Date().toLocaleString()
-      }
-    ]
-
-    return { issues: mockIssues, actions: mockActions }
-  }
-
   // Handler function (like a Rails controller action)
   const handleAnalyze = async (product: string) => {
     console.log('Analyzing product:', product)
@@ -89,6 +35,7 @@ export default function Home() {
     ]
 
     // Go through each step with a delay (like a progress bar)
+    // This simulates the agent working through steps
     for (let i = 0; i < steps.length; i++) {
       setCurrentStep(steps[i])
       
@@ -97,17 +44,35 @@ export default function Home() {
       await new Promise(resolve => setTimeout(resolve, 1500))
     }
 
-    // When complete, show results
-    const results = generateMockResults(product)
-    setIssues(results.issues)
-    setActions(results.actions)
+    // Call the API endpoint (like making a request in Rails)
+    try {
+      const response = await fetch('/api/analyze-product', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ product }),
+      })
 
-    // After showing results for a while, reset (optional)
-    // setTimeout(() => {
-    //   setCurrentStep('idle')
-    //   setIssues([])
-    //   setActions([])
-    // }, 10000)
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+
+      if (data.success) {
+        // Set results from API response
+        setIssues(data.issues || [])
+        setActions(data.actions || [])
+      } else {
+        console.error('API returned error:', data.error)
+        // You could show an error message to the user here
+      }
+    } catch (error) {
+      console.error('Error calling API:', error)
+      // You could show an error message to the user here
+      // For now, we'll just log it
+    }
   }
 
   return (
