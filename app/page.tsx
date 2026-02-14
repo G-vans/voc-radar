@@ -5,23 +5,41 @@
 
 import { useState } from 'react'
 import ProductSelector from '@/components/ProductSelector'
+import AgentStatus, { type AgentStep } from '@/components/AgentStatus'
 
 export default function Home() {
-  // State to track if analysis is running (like @analyzing = false in Rails)
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  // State to track agent progress (like @current_step = 'idle' in Rails)
+  const [currentStep, setCurrentStep] = useState<AgentStep>('idle')
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
 
   // Handler function (like a Rails controller action)
   const handleAnalyze = async (product: string) => {
     console.log('Analyzing product:', product)
     setSelectedProduct(product)
-    setIsAnalyzing(true)
     
-    // TODO: Call API endpoint here
-    // For now, just simulate
+    // Simulate agent progress through steps
+    // In real app, this will be driven by API responses
+    const steps: AgentStep[] = [
+      'fetching_reviews',
+      'analyzing_trends',
+      'detecting_issues',
+      'creating_issue',
+      'complete'
+    ]
+
+    // Go through each step with a delay (like a progress bar)
+    for (let i = 0; i < steps.length; i++) {
+      setCurrentStep(steps[i])
+      
+      // Wait before moving to next step
+      // In real app, we'll wait for API response instead
+      await new Promise(resolve => setTimeout(resolve, 1500))
+    }
+
+    // After completion, reset after a delay
     setTimeout(() => {
-      setIsAnalyzing(false)
-    }, 2000)
+      setCurrentStep('idle')
+    }, 3000)
   }
 
   return (
@@ -34,17 +52,11 @@ export default function Home() {
       {/* Product Selector Component */}
       <ProductSelector onAnalyze={handleAnalyze} />
       
-      {/* Status message */}
-      {isAnalyzing && (
-        <div style={{
-          padding: '1rem',
-          backgroundColor: '#e3f2fd',
-          borderRadius: '4px',
-          marginBottom: '1rem'
-        }}>
-          Analyzing reviews for {selectedProduct}...
-        </div>
-      )}
+      {/* Agent Status Component - Shows multi-step progress */}
+      <AgentStatus 
+        currentStep={currentStep} 
+        productName={selectedProduct || undefined}
+      />
     </main>
   )
 }
