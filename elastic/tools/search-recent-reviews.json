@@ -1,0 +1,16 @@
+{
+  "id": "search_recent_reviews",
+  "name": "search_recent_reviews",
+  "description": "Search for recent customer reviews for a specific product. Returns reviews from the last 7 days with their text, rating, sentiment, and platform information.",
+  "type": "esql",
+  "configuration": {
+    "query": "FROM customer_reviews | WHERE product == \"{{product_name}}\" | WHERE @timestamp >= NOW() - 7d | SORT @timestamp DESC | LIMIT 100"
+  },
+  "params": {
+    "product_name": {
+      "type": "keyword",
+      "description": "The name of the product to search reviews for (e.g., 'Product A', 'Product B', 'Product C')",
+      "required": true
+    }
+  }
+}

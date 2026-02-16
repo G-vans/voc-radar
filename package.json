@@ -10,7 +10,8 @@
     "lint": "next lint",
     "generate-reviews": "node data/generate-reviews.js",
     "index-reviews": "node data/index-reviews.js",
-    "setup-elastic": "npm run generate-reviews && npm run index-reviews"
+    "setup-elastic": "npm run generate-reviews && npm run index-reviews",
+    "create-tools": "node elastic/create-tools.js"
   },
   "dependencies": {
     "next": "^14.2.0",
