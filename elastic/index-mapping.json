@@ -1,0 +1,31 @@
+{
+  "mappings": {
+    "properties": {
+      "product": {
+        "type": "keyword"
+      },
+      "platform": {
+        "type": "keyword"
+      },
+      "review_text": {
+        "type": "text",
+        "analyzer": "standard"
+      },
+      "rating": {
+        "type": "integer"
+      },
+      "sentiment_score": {
+        "type": "float"
+      },
+      "sentiment_label": {
+        "type": "keyword"
+      },
+      "review_id": {
+        "type": "keyword"
+      },
+      "@timestamp": {
+        "type": "date"
+      }
+    }
+  }
+}
