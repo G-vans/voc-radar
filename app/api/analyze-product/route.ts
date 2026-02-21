@@ -71,11 +71,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Helper function to call Elastic Agent Builder
+// Helper function to call Elasticsearch directly (ES|QL + indexing)
 async function analyzeProductWithAgent(product: string): Promise<Omit<AnalyzeResponse, 'success' | 'error'>> {
   const baseUrl = process.env.ELASTIC_BASE_URL
   const apiKey = process.env.ELASTIC_API_KEY
-  const agentId = process.env.AGENT_ID || 'voc-analysis-agent' // Default to agent name if ID not set
 
   if (!baseUrl || !apiKey) {
     console.warn('Elastic credentials not configured, using mock data')
@@ -83,236 +82,179 @@ async function analyzeProductWithAgent(product: string): Promise<Omit<AnalyzeRes
   }
 
   try {
-    // Use Elasticsearch endpoint format (as shown in docs)
-    // Format: https://deployment.es.region.cloud.es.io:443
-    let esUrl = baseUrl
-    if (esUrl.includes(':9243')) {
-      esUrl = esUrl.replace(':9243', ':443')
-    }
-    
-    // For Agent Builder, we need Kibana URL
-    const kibanaUrl = esUrl.replace('.es.', '.kb.').replace(':443', '').replace(':9243', '')
-    
-    console.log(`Using Kibana URL: ${kibanaUrl}`)
-    console.log(`Agent ID: ${agentId}`)
-    
-    // Try conversation-based approach (create conversation, then send message)
-    // Step 1: Create or get conversation
-    const conversationsUrl = `${kibanaUrl}/api/agent_builder/conversations`
-    
-    console.log('Step 1: Creating/getting conversation...')
-    let convResponse = await fetch(conversationsUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `ApiKey ${apiKey}`,
-        'kbn-xsrf': 'true'
-      },
-      body: JSON.stringify({
-        agent_id: agentId
-      })
-    })
+    const [recentReviews, sentimentTrends] = await Promise.all([
+      runEsqlQuery(baseUrl, apiKey, buildRecentReviewsQuery(product)),
+      runEsqlQuery(baseUrl, apiKey, buildTrendQuery(product))
+    ])
 
-    console.log(`Conversation creation status: ${convResponse.status}`)
+    const { issues, actions } = await buildIssuesFromData(product, recentReviews, sentimentTrends)
 
-    let conversationId = null
-    if (convResponse.ok) {
-      const convData = await convResponse.json()
-      conversationId = convData.id || convData.conversation_id
-      console.log(`✅ Conversation created: ${conversationId}`)
-    } else if (convResponse.status === 409) {
-      // Conversation might already exist, try to get it
-      console.log('Conversation might exist, trying to get list...')
-      const listResponse = await fetch(conversationsUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `ApiKey ${apiKey}`,
-          'kbn-xsrf': 'true'
-        }
-      })
-      if (listResponse.ok) {
-        const conversations = await listResponse.json()
-        const existingConv = conversations.find((c: any) => c.agent_id === agentId)
-        if (existingConv) {
-          conversationId = existingConv.id || existingConv.conversation_id
-          console.log(`✅ Using existing conversation: ${conversationId}`)
-        }
-      }
+    if (issues.length === 0) {
+      console.log(`No critical issues detected for ${product}`)
+      return { issues: [], actions: [] }
     }
 
-    // Step 2: Send message to conversation
-    if (conversationId) {
-      const messageUrl = `${kibanaUrl}/api/agent_builder/conversations/${conversationId}/messages`
-      console.log(`Step 2: Sending message to conversation ${conversationId}...`)
-      
-      const response = await fetch(messageUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `ApiKey ${apiKey}`,
-          'kbn-xsrf': 'true'
-        },
-        body: JSON.stringify({
-          message: `Analyze reviews for ${product}. Identify any emerging issues, sentiment trends, and provide actionable insights.`,
-          stream: false
-        })
-      })
-
-      console.log(`Message response status: ${response.status}`)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Message API error:', response.status, errorText)
-        throw new Error(`Message API error: ${response.status} ${errorText}`)
-      }
-
-      const agentResponse = await response.json()
-      console.log('Agent response received:', JSON.stringify(agentResponse, null, 2).substring(0, 500))
-      
-      // Parse agent response and convert to our format
-      return await parseAgentResponse(agentResponse, product)
-    } else {
-      throw new Error('Could not create or find conversation')
-    }
-
+    return { issues, actions }
   } catch (error) {
-    console.error('Error calling Elastic Agent Builder:', error)
-    // Fallback to mock data if API call fails
+    console.error('Error calling Elasticsearch:', error)
     console.warn('Falling back to mock data')
     return getMockResults(product)
   }
 }
 
-// Parse agent response and convert to our expected format
-async function parseAgentResponse(agentResponse: any, product: string): Promise<Omit<AnalyzeResponse, 'success' | 'error'>> {
-  // Extract tool results from agent response
-  const toolResults = agentResponse.results?.filter((r: any) => r.type === 'tabular_data') || []
-  
-  // Try to extract issues from agent's analysis
-  const agentMessage = agentResponse.message || agentResponse.content || ''
-  
-  const issues: AnalyzeResponse['issues'] = []
+interface EsqlResponse {
+  columns?: Array<{ name: string }>
+  values?: any[][]
+}
+
+function buildRecentReviewsQuery(product: string) {
+  return `FROM customer_reviews
+| WHERE product == "${product}"
+| WHERE @timestamp >= NOW() - 7d
+| KEEP @timestamp, platform, rating, sentiment_score, sentiment_label, review_text
+| SORT @timestamp DESC
+| LIMIT 100`
+}
+
+function buildTrendQuery(product: string) {
+  return `FROM customer_reviews
+| WHERE product == "${product}"
+| WHERE @timestamp >= NOW() - 30d
+| EVAL complaint_flag = CASE(sentiment_score < 0.35, 1, 0)
+| STATS avg_sentiment = AVG(sentiment_score), complaint_count = SUM(complaint_flag), total_reviews = COUNT()
+  BY BUCKET(@timestamp, 1d)
+| LIMIT 30`
+}
+
+async function runEsqlQuery(baseUrl: string, apiKey: string, query: string): Promise<EsqlResponse> {
+  const response = await fetch(`${baseUrl}/_query`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `ApiKey ${apiKey}`
+    },
+    body: JSON.stringify({ query })
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`ES|QL query failed: ${response.status} ${errorText}`)
+  }
+
+  return response.json()
+}
+
+function esqlRowsToObjects(result?: EsqlResponse): Record<string, any>[] {
+  if (!result?.columns || !result?.values) return []
+  return result.values.map((row) => {
+    const item: Record<string, any> = {}
+    result.columns!.forEach((col, index) => {
+      item[col.name] = row[index]
+    })
+    return item
+  })
+}
+
+async function buildIssuesFromData(
+  product: string,
+  recentReviews: EsqlResponse,
+  sentimentTrends: EsqlResponse
+): Promise<{ issues: AnalyzeResponse['issues']; actions: AnalyzeResponse['actions'] }> {
+  const reviewRows = esqlRowsToObjects(recentReviews)
+  const trendRows = esqlRowsToObjects(sentimentTrends)
+
+  const complaintRows = reviewRows.filter((row) => {
+    const sentiment = Number(row.sentiment_score ?? 0.5)
+    const rating = Number(row.rating ?? 5)
+    return sentiment < 0.35 || rating <= 2
+  })
+
+  const totalComplaints = complaintRows.length
+  const avgSentiment = (() => {
+    if (trendRows.length > 0) {
+      const sum = trendRows.reduce((acc, row) => acc + Number(row.avg_sentiment ?? 0), 0)
+      return sum / trendRows.length
+    }
+    if (reviewRows.length === 0) return 0.5
+    const sum = reviewRows.reduce((acc, row) => acc + Number(row.sentiment_score ?? 0.5), 0)
+    return sum / reviewRows.length
+  })()
+
+  const hasIssue = totalComplaints >= 3 || avgSentiment < 0.45
+  if (!hasIssue) {
+    return { issues: [], actions: [] }
+  }
+
+  let trend: 'increasing' | 'stable' | 'decreasing' = 'stable'
+  if (trendRows.length >= 2) {
+    const sorted = [...trendRows].sort((a, b) => new Date(a['@timestamp']).getTime() - new Date(b['@timestamp']).getTime())
+    const oldest = sorted[0]
+    const newest = sorted[sorted.length - 1]
+    const oldComplaints = Number(oldest.complaint_count ?? 0)
+    const newComplaints = Number(newest.complaint_count ?? 0)
+    if (newComplaints > oldComplaints * 1.3) {
+      trend = 'increasing'
+    } else if (newComplaints < oldComplaints * 0.7) {
+      trend = 'decreasing'
+    }
+  }
+
+  let confidence: 'high' | 'medium' | 'low' = 'medium'
+  if (totalComplaints >= 15 || avgSentiment < 0.3) {
+    confidence = 'high'
+  } else if (totalComplaints < 5 && avgSentiment >= 0.42) {
+    confidence = 'low'
+  }
+
+  const uniquePlatforms = Array.from(new Set(reviewRows.map((row) => row.platform).filter(Boolean))) as string[]
+  const evidenceSource = complaintRows.length > 0 ? complaintRows : reviewRows
+  const evidence = evidenceSource
+    .slice(0, 3)
+    .map((row) => (row.review_text ?? '').toString().trim())
+    .filter(Boolean)
+
+  if (evidence.length === 0) {
+    evidence.push('Detected anomalies in sentiment trends for this product over the last 30 days.')
+  }
+
+  const issueId = `issue-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  const issue: AnalyzeResponse['issues'][0] = {
+    id: issueId,
+    title: totalComplaints >= 5
+      ? `High Complaint Volume Detected for ${product}`
+      : `Sentiment Decline Detected for ${product}`,
+    description: `Detected ${totalComplaints} recent complaints with an average sentiment score of ${avgSentiment.toFixed(2)}.`,
+    confidence,
+    platforms: uniquePlatforms.length > 0 ? uniquePlatforms : ['Multiple Platforms'],
+    trend,
+    reviewCount: totalComplaints || reviewRows.length,
+    firstDetected: new Date().toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    }),
+    evidence
+  }
+
+  const issues: AnalyzeResponse['issues'] = [issue]
   const actions: AnalyzeResponse['actions'] = []
 
-  // Analyze tool results to detect issues
-  const trendData = toolResults.find((r: any) => 
-    r.data?.columns?.some((c: any) => c.name === 'complaint_count' || c.name === 'avg_sentiment')
-  )
-
-  let hasComplaints = false
-  let complaintCount = 0
-  let avgSentiment = 0.5
-  let platforms: string[] = []
-
-  if (trendData?.data?.values) {
-    const complaintIndex = trendData.data.columns?.findIndex((c: any) => c.name === 'complaint_count') ?? -1
-    const sentimentIndex = trendData.data.columns?.findIndex((c: any) => c.name === 'avg_sentiment') ?? -1
-    
-    // Sum up complaints and calculate average sentiment
-    let totalComplaints = 0
-    let totalSentiment = 0
-    let sentimentCount = 0
-
-    trendData.data.values.forEach((row: any[]) => {
-      if (complaintIndex >= 0 && row[complaintIndex]) {
-        totalComplaints += Number(row[complaintIndex]) || 0
-      }
-      if (sentimentIndex >= 0 && row[sentimentIndex]) {
-        totalSentiment += Number(row[sentimentIndex]) || 0
-        sentimentCount++
-      }
+  try {
+    await createIssueRecord(issue, product)
+    actions.push({
+      type: 'issue_created',
+      status: 'success',
+      message: `Issue #${issueId} created in tracking system`,
+      timestamp: new Date().toLocaleString()
     })
-
-    complaintCount = totalComplaints
-    hasComplaints = complaintCount > 5 // Threshold: more than 5 complaints
-    avgSentiment = sentimentCount > 0 ? totalSentiment / sentimentCount : 0.5
-  }
-
-  // Check recent reviews for platforms
-  const reviewData = toolResults.find((r: any) => 
-    r.data?.columns?.some((c: any) => c.name === 'platform')
-  )
-  if (reviewData?.data?.values) {
-    const platformIndex = reviewData.data.columns?.findIndex((c: any) => c.name === 'platform') ?? -1
-    if (platformIndex >= 0) {
-      const uniquePlatforms = new Set<string>()
-      reviewData.data.values.forEach((row: any[]) => {
-        if (row[platformIndex]) {
-          uniquePlatforms.add(String(row[platformIndex]))
-        }
-      })
-      platforms = Array.from(uniquePlatforms)
-    }
-  }
-
-  // Determine if we have significant issues
-  const hasIssues = hasComplaints || avgSentiment < 0.4 || agentMessage.toLowerCase().includes('issue') || agentMessage.toLowerCase().includes('problem')
-
-  if (hasIssues) {
-    // Determine confidence and trend
-    let confidence: 'high' | 'medium' | 'low' = 'medium'
-    if (complaintCount > 10 || avgSentiment < 0.3) {
-      confidence = 'high'
-    } else if (complaintCount < 3) {
-      confidence = 'low'
-    }
-
-    let trend: 'increasing' | 'stable' | 'decreasing' = 'stable'
-    if (trendData?.data?.values && trendData.data.values.length >= 2) {
-      const recent = trendData.data.values[0]
-      const older = trendData.data.values[trendData.data.values.length - 1]
-      const complaintIndex = trendData.data.columns?.findIndex((c: any) => c.name === 'complaint_count') ?? -1
-      if (complaintIndex >= 0) {
-        const recentComplaints = Number(recent[complaintIndex]) || 0
-        const olderComplaints = Number(older[complaintIndex]) || 0
-        if (recentComplaints > olderComplaints * 1.5) {
-          trend = 'increasing'
-        } else if (recentComplaints < olderComplaints * 0.7) {
-          trend = 'decreasing'
-        }
-      }
-    }
-
-    const issueId = `issue-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    const issue = {
-      id: issueId,
-      title: hasComplaints 
-        ? `High Complaint Volume Detected for ${product}`
-        : `Sentiment Decline Detected for ${product}`,
-      description: agentMessage.substring(0, 500) || 
-        `Agent detected issues for ${product}. ${complaintCount} complaints found, average sentiment: ${avgSentiment.toFixed(2)}.`,
-      confidence,
-      platforms: platforms.length > 0 ? platforms : ['Multiple Platforms'],
-      trend,
-      reviewCount: complaintCount || reviewData?.data?.values?.length || 0,
-      firstDetected: new Date().toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      }),
-      evidence: extractEvidence(toolResults)
-    }
-
-    issues.push(issue)
-
-    // Create issue record in Elasticsearch
-    try {
-      await createIssueRecord(issue, product)
-      actions.push({
-        type: 'issue_created',
-        status: 'success',
-        message: `Issue #${issueId} created in tracking system`,
-        timestamp: new Date().toLocaleString()
-      })
-    } catch (error) {
-      console.error('Error creating issue record:', error)
-      actions.push({
-        type: 'issue_created',
-        status: 'failed',
-        message: 'Failed to create issue record',
-        timestamp: new Date().toLocaleString()
-      })
-    }
+  } catch (error) {
+    console.error('Error creating issue record:', error)
+    actions.push({
+      type: 'issue_created',
+      status: 'failed',
+      message: 'Failed to create issue record',
+      timestamp: new Date().toLocaleString()
+    })
   }
 
   return { issues, actions }
@@ -415,30 +357,6 @@ async function createIssuesIndex(baseUrl: string, apiKey: string): Promise<void>
     // 400 might mean index already exists, which is fine
     console.warn('Could not create issues index:', await response.text())
   }
-}
-
-// Extract evidence from tool results
-function extractEvidence(toolResults: any[]): string[] {
-  const evidence: string[] = []
-  
-  toolResults.forEach((result: any) => {
-    if (result.data?.values) {
-      // Get sample review texts or complaint data
-      const reviewTextIndex = result.data.columns?.findIndex((c: any) => 
-        c.name === 'review_text' || c.name === 'reviewText'
-      ) ?? -1
-      
-      if (reviewTextIndex >= 0) {
-        result.data.values.slice(0, 3).forEach((row: any[]) => {
-          if (row[reviewTextIndex]) {
-            evidence.push(String(row[reviewTextIndex]).substring(0, 100))
-          }
-        })
-      }
-    }
-  })
-
-  return evidence.length > 0 ? evidence : ['Analysis completed - see agent response for details']
 }
 
 // Fallback mock data function
