@@ -169,7 +169,12 @@ async function buildIssuesFromData(
     return sentiment < 0.35 || rating <= 2
   })
 
-  const totalComplaints = complaintRows.length
+  const trendComplaintTotal = trendRows.reduce(
+    (acc, row) => acc + Number(row.complaint_count ?? 0),
+    0
+  )
+
+  const totalComplaints = Math.max(complaintRows.length, trendComplaintTotal)
   const avgSentiment = (() => {
     if (trendRows.length > 0) {
       const sum = trendRows.reduce((acc, row) => acc + Number(row.avg_sentiment ?? 0), 0)
