@@ -23,6 +23,8 @@ export interface Action {
   status: 'success' | 'pending' | 'failed'
   message: string
   timestamp: string
+  issueId?: string  // Link to the issue that was created
+  details?: string  // Additional details about the action
 }
 
 interface ResultsDisplayProps {
@@ -90,12 +92,14 @@ export default function ResultsDisplay({ issues, actions, productName }: Results
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {issues.map((issue) => (
               <div
+                id={`issue-${issue.id}`}
                 key={issue.id}
                 style={{
                   border: '1px solid #e0e0e0',
                   borderRadius: '8px',
                   padding: '1.5rem',
-                  backgroundColor: '#fafafa'
+                  backgroundColor: '#fafafa',
+                  transition: 'box-shadow 0.3s'
                 }}
               >
                 {/* Issue Header */}
@@ -213,54 +217,152 @@ export default function ResultsDisplay({ issues, actions, productName }: Results
           backgroundColor: 'white',
           padding: '2rem',
           borderRadius: '8px',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          marginTop: '2rem'
         }}>
-          <h2 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>
-            Automated Actions Taken
-          </h2>
+          <div style={{ marginBottom: '1rem' }}>
+            <h2 style={{ marginBottom: '0.5rem', fontSize: '1.5rem' }}>
+              Automated Actions Taken
+            </h2>
+            <p style={{ fontSize: '0.875rem', color: '#666', margin: 0 }}>
+              The system automatically created tracking records and logged evidence for detected issues.
+            </p>
+          </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {actions.map((action, index) => (
-              <div
-                key={index}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '1rem',
-                  padding: '1rem',
-                  backgroundColor: action.status === 'success' ? '#e8f5e9' : '#fff3e0',
-                  borderRadius: '4px',
-                  border: `1px solid ${action.status === 'success' ? '#4caf50' : '#ff9800'}`
-                }}
-              >
-                {/* Status Icon */}
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: action.status === 'success' ? '#4caf50' : '#ff9800',
-                  color: 'white',
-                  fontWeight: 'bold',
-                  fontSize: '18px',
-                  flexShrink: 0
-                }}>
-                  {getActionIcon(action.status)}
-                </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {actions.map((action, index) => {
+              // Find the related issue if this action created one
+              const relatedIssue = action.issueId 
+                ? issues.find(issue => issue.id === action.issueId)
+                : null
 
-                {/* Action Info */}
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: '500', marginBottom: '0.25rem' }}>
-                    {action.message}
-                  </div>
-                  <div style={{ fontSize: '0.875rem', color: '#666' }}>
-                    {action.timestamp}
+              return (
+                <div
+                  key={index}
+                  style={{
+                    padding: '1.25rem',
+                    backgroundColor: action.status === 'success' ? '#e8f5e9' : '#fff3e0',
+                    borderRadius: '8px',
+                    border: `2px solid ${action.status === 'success' ? '#4caf50' : '#ff9800'}`,
+                    borderLeft: `6px solid ${action.status === 'success' ? '#4caf50' : '#ff9800'}`
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    {/* Status Icon */}
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: action.status === 'success' ? '#4caf50' : '#ff9800',
+                      color: 'white',
+                      fontWeight: 'bold',
+                      fontSize: '20px',
+                      flexShrink: 0
+                    }}>
+                      {getActionIcon(action.status)}
+                    </div>
+
+                    {/* Action Info */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ 
+                        fontWeight: '600', 
+                        fontSize: '1rem',
+                        marginBottom: '0.5rem',
+                        color: '#333'
+                      }}>
+                        {action.type === 'issue_created' && 'Issue Record Created'}
+                        {action.type === 'response_drafted' && 'Response Drafted'}
+                        {action.type === 'alert_sent' && 'Alert Sent'}
+                      </div>
+                      
+                      <div style={{ 
+                        fontWeight: '500', 
+                        marginBottom: '0.5rem',
+                        color: '#555'
+                      }}>
+                        {action.message}
+                      </div>
+
+                      {action.details && (
+                        <div style={{ 
+                          fontSize: '0.875rem', 
+                          color: '#666',
+                          marginBottom: '0.5rem',
+                          padding: '0.75rem',
+                          backgroundColor: 'white',
+                          borderRadius: '4px',
+                          border: '1px solid #e0e0e0'
+                        }}>
+                          {action.details}
+                        </div>
+                      )}
+
+                      {relatedIssue && (
+                        <div style={{
+                          marginTop: '0.75rem',
+                          padding: '0.75rem',
+                          backgroundColor: 'white',
+                          borderRadius: '4px',
+                          border: '1px solid #2196f3'
+                        }}>
+                          <div style={{ 
+                            fontSize: '0.75rem', 
+                            color: '#666',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            marginBottom: '0.25rem'
+                          }}>
+                            Related Issue
+                          </div>
+                          <div style={{ 
+                            fontWeight: '500',
+                            color: '#2196f3',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => {
+                            // Scroll to the related issue
+                            const issueElement = document.getElementById(`issue-${relatedIssue.id}`)
+                            if (issueElement) {
+                              issueElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                              // Highlight it briefly
+                              issueElement.style.transition = 'box-shadow 0.3s'
+                              issueElement.style.boxShadow = '0 0 0 3px rgba(33, 150, 243, 0.3)'
+                              setTimeout(() => {
+                                issueElement.style.boxShadow = ''
+                              }, 2000)
+                            }
+                          }}
+                          >
+                            {relatedIssue.title} →
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ 
+                        fontSize: '0.75rem', 
+                        color: '#999',
+                        marginTop: '0.5rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem'
+                      }}>
+                        <span>🕐</span>
+                        <span>{action.timestamp}</span>
+                        {action.status === 'success' && (
+                          <>
+                            <span>•</span>
+                            <span style={{ color: '#4caf50', fontWeight: '500' }}>✓ Completed</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
