@@ -106,7 +106,7 @@ async function analyzeProductWithAgent(product: string): Promise<Omit<AnalyzeRes
 
 interface EsqlResponse {
   columns?: Array<{ name: string }>
-  values?: any[][]
+  values?: unknown[][]
 }
 
 function buildRecentReviewsQuery(product: string) {
@@ -146,10 +146,10 @@ async function runEsqlQuery(baseUrl: string, apiKey: string, query: string): Pro
   return response.json()
 }
 
-function esqlRowsToObjects(result?: EsqlResponse): Record<string, any>[] {
+function esqlRowsToObjects(result?: EsqlResponse): Record<string, unknown>[] {
   if (!result?.columns || !result?.values) return []
   return result.values.map((row) => {
-    const item: Record<string, any> = {}
+    const item: Record<string, unknown> = {}
     result.columns!.forEach((col, index) => {
       item[col.name] = row[index]
     })
@@ -196,7 +196,15 @@ async function buildIssuesFromData(
   let oldComplaints = 0
   let newComplaints = 0
   if (trendRows.length >= 2) {
-    const sorted = [...trendRows].sort((a, b) => new Date(a['@timestamp']).getTime() - new Date(b['@timestamp']).getTime())
+    const sorted = [...trendRows].sort((a, b) => {
+      const aTime = typeof a['@timestamp'] === 'string' || typeof a['@timestamp'] === 'number' 
+        ? new Date(a['@timestamp']).getTime() 
+        : 0
+      const bTime = typeof b['@timestamp'] === 'string' || typeof b['@timestamp'] === 'number'
+        ? new Date(b['@timestamp']).getTime()
+        : 0
+      return aTime - bTime
+    })
     const oldest = sorted[0]
     const newest = sorted[sorted.length - 1]
     oldComplaints = Number(oldest.complaint_count ?? 0)
