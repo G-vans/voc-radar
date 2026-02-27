@@ -78,7 +78,6 @@ export default function AgentStatus({ currentStep, productName }: AgentStatusPro
         {allSteps.map((step, index) => {
           const isCompleted = index < currentStepIndex
           const isCurrent = index === currentStepIndex
-          const isPending = index > currentStepIndex
 
           return (
             <div

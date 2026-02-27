@@ -199,7 +199,7 @@ export default function ResultsDisplay({ issues, actions, productName }: Results
                             borderLeft: '3px solid #2196f3'
                           }}
                         >
-                          "{review}"
+                          &ldquo;{review}&rdquo;
                         </div>
                       ))}
                     </div>
