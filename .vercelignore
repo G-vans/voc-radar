@@ -1,0 +1,5 @@
+# Vercel ignore file
+data/
+elastic/
+*.md
+!README.md
